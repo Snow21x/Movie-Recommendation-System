@@ -9,7 +9,8 @@ import tensorflow as tf
 from tensorflow.keras.models import Model
 from tensorflow.keras.layers import Input, Dense
 
-#Loads Dataset
+
+# Load Dataset
 movies = pd.read_csv(
     'https://raw.githubusercontent.com/sidooms/MovieTweetings/master/latest/movies.dat',
     sep='::', header=None, engine='python',
@@ -21,7 +22,8 @@ ratings = pd.read_csv(
     names=['userId','movieId','rating','timestamp']
 )
 
-#Data Cleaning & EDA
+
+# Data Cleaning & EDA
 print("Movies head:\n", movies.head())
 print("Ratings head:\n", ratings.head())
 print("Number of unique users:", ratings['userId'].nunique())
@@ -39,27 +41,34 @@ top_movie_titles = movies[movies['movieId'].isin(top_movies.index)]
 print("Top 10 rated movies:\n", top_movie_titles[['title']])
 
 
-#Collaborative Filtering
+# Collaborative Filtering (with subset to prevent overflow)
+filtered_ratings = ratings[
+    (ratings['userId'] <= 5000) & (ratings['movieId'] <= 5000)
+]
 
-user_movie_matrix = ratings.pivot(index='userId', columns='movieId', values='rating').fillna(0)
+user_movie_matrix = filtered_ratings.pivot(
+    index='userId', columns='movieId', values='rating'
+).fillna(0)
+print("Shape of user-movie matrix:", user_movie_matrix.shape)
 model_knn = NearestNeighbors(metric='cosine', algorithm='brute')
 model_knn.fit(user_movie_matrix.values)
 def recommend_knn(user_id, n_recommendations=5):
-    user_idx = user_id - 1
+    if user_id not in user_movie_matrix.index:
+        print(f"User {user_id} not in dataset (try <= 5000).")
+        return []
+    user_idx = list(user_movie_matrix.index).index(user_id)
     distances, indices = model_knn.kneighbors(
         user_movie_matrix.values[user_idx].reshape(1, -1),
         n_neighbors=n_recommendations+1
     )
-    rec_indices = indices.flatten()[1:]
-    rec_movies = user_movie_matrix.index[rec_indices]
-    return rec_movies
+    rec_indices = indices.flatten()[1:] 
+    rec_users = user_movie_matrix.index[rec_indices]
+    return rec_users
 print("Collaborative Filtering Recommendations for User 1:")
 print(recommend_knn(1))
 
 
-#Deep Learning Autoencoder Recommender
-
-# Build Autoencoder
+# Deep Learning Autoencoder Recommender
 def build_autoencoder(input_dim):
     input_layer = Input(shape=(input_dim,))
     encoded = Dense(128, activation='relu')(input_layer)
@@ -78,28 +87,21 @@ input_dim = X_train.shape[1]
 autoencoder = build_autoencoder(input_dim)
 autoencoder.fit(
     X_train, X_train,
-    epochs=20,
+    epochs=10,  
     batch_size=32,
     shuffle=True,
     validation_data=(X_test, X_test),
     verbose=1
 )
-user_idx = 0
+
+# Predict recommendations for a given user
+user_idx = 0  
 predicted_ratings = autoencoder.predict(ratings_matrix_scaled[user_idx].reshape(1, -1)).flatten()
 already_rated = user_movie_matrix.values[user_idx] > 0
 predicted_ratings[already_rated] = 0
 top_indices = predicted_ratings.argsort()[::-1][:5]
-recommended_movies = movies.iloc[top_indices]['title'].values
+recommended_movies = movies[movies['movieId'].isin(user_movie_matrix.columns[top_indices])]['title'].values
 print("\nDeep Learning Recommendations for User 1:")
 print(recommended_movies)
 
-# Genre Preferences
-movies['genres'] = movies['genres'].str.split('|')
-def get_genres_for_recommendations(movie_ids):
-    rec_genres = movies[movies['movieId'].isin(movie_ids)]['genres']
-    all_genres = [g for sublist in rec_genres for g in sublist]
-    return pd.Series(all_genres).value_counts()
-
-print("\nTop Genres for User 1 (based on Autoencoder Recommendations):")
-print(get_genres_for_recommendations(recommended_ids).head(5))
 
