@@ -92,3 +92,14 @@ top_indices = predicted_ratings.argsort()[::-1][:5]
 recommended_movies = movies.iloc[top_indices]['title'].values
 print("\nDeep Learning Recommendations for User 1:")
 print(recommended_movies)
+
+# Genre Preferences
+movies['genres'] = movies['genres'].str.split('|')
+def get_genres_for_recommendations(movie_ids):
+    rec_genres = movies[movies['movieId'].isin(movie_ids)]['genres']
+    all_genres = [g for sublist in rec_genres for g in sublist]
+    return pd.Series(all_genres).value_counts()
+
+print("\nTop Genres for User 1 (based on Autoencoder Recommendations):")
+print(get_genres_for_recommendations(recommended_ids).head(5))
+
